@@ -1,0 +1,545 @@
+---
+title: "Final Project Report"
+author: "Team 4"
+date: "4/28/2021"
+output: html_document
+---
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+# Twitter Sentiment Analysis - What are people talking about iPhone12?
+
+## Team Members
+- Rohit Chamarthi
+- Srujan Kumar Karri
+- Revanth Kumar Dattuluri
+- Helen Nguyen
+
+## Business Context
+Twitter is a social platform that has more than 300 million monthly active users. The platform is especially popular in the U.S. and has a great impact on the culture of this country.  Hence, it is a good source for the companies to learn more about existing and potential customers. On Twitter, people use hashtags to identify their keywords. Thus, by getting tweets including a specific hashtag and perform different NLP and ML techniques, the brands can learn how customers are reacting about their products.
+In this project, assume that we are Apple’s marketing team, we would like to know what people are thinking about iPhone12, especially after the event in April in which the company introduced the new color for iPhone12. 
+
+
+## Problem Description
+The primary objective of our project is to pick a twitter hashtag #iPhone12, extract data pertaining to it, preprocess, and carry out sentiment analysis on the processed tweets.
+
+Product based hashtags are powerful, as they can showcase what people’s opinions and intentions are and what is happening right now. If you are an expert on smart phones, or if you are in the business of providing smart phones, this opens an opportunity make better marketing and business decisions.
+
+Upon classification of tweets to the prevailing sentiment, we will use H2O AutoML to get the best model to predict which Twitter users tend to tweet positively about #iphone12.It can help Apple identify potential partner influencers for their new iPhone12 Purple and for their next products also. 
+
+## URL Link
+Datasets: https://drive.google.com/drive/u/0/folders/1esPsxO-ucRdmEGpljyoUTrGU81wL1d9n
+
+## Loading Libraries
+```{r message=FALSE}
+library(plyr)
+library(e1071)
+library(twitteR)
+library(ROAuth)
+library(SentimentAnalysis)
+library(sentimentr)
+library(wordcloud)
+library(tokenizers)
+library(RColorBrewer)
+library(RCurl)
+library(RJSONIO)
+library(qdapDictionaries)
+library(RSentiment)
+require('devtools')
+require('SentimentAnalysis')
+library(httpuv)
+library(tidyverse)
+library(text2vec)
+library(caret)
+library(glmnet)
+library(ggrepel)
+library(purrrlyr)
+library(rtweet)
+library(knitr)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(kableExtra)
+library(readr) 
+library(igraph)
+library(tidytext)
+library(stringr)
+library(broom)
+library(scales)
+library(purrr)
+library(tm)
+library(SnowballC)
+library(lubridate)
+library(ggthemes)
+library(ggraph)
+library(widyr)
+library(gridExtra)
+library(gtable)
+library(stopwords)
+library(textdata)
+```
+
+## Data Exploration, Discussion, and Preprocessing
+In this project, we accessed data about hashtag #iphone12 from Twitter API. Then, we put it in a dataframe and export that datafram to CSV. All is done in R. 
+We were able to extract 25,000 tweets which include hashtag #iphone12. 
+The dataset includes 16 columns
+```{r}
+# load data from the csv file
+df <- read.csv("iphone12.csv")
+glimpse(df)
+```
+
+
+### Visualization of Number of Tweets including #iPhone12 by date
+
+```{r}
+df$created <- as.Date(df$created)
+df$date <- date(df$created)
+
+v1 = df %>%
+  group_by(date) %>%
+  summarise(n = n())
+ggplot(data = v1 , aes(x=date, y=n)) +
+  geom_bar(stat="identity", color="blue", fill="red") +
+  xlab ("Date") +
+  ylab ("Number of Tweets")
+```
+
+The graph shows that most tweets in the dataset are created on April 21. April 20 is Apple's 'Spring Loaded' event. In their event, they introduced the new color for iPhone12. At this point, we can see that the event definitely helped increase people's interest in iPhone12 significantly. To understand better how people react about iPhone12 and the new purple version, NLP and more visualizations will be performed in the next part. 
+
+### Preprocessing
+
+Before performing NLP, it is noticed that the dataset includes retweets. We do not want duplicates. Hence, we need to remove rows which are retweeted.
+We also remove unimportant columns for this project and columns in which most values are NA. 
+
+```{r}
+df = df %>%
+  filter(isRetweet == 'FALSE')
+df <- df %>% 
+  select(-c(15,16,13,10,9,7,6,4))
+glimpse(df)
+
+```
+
+
+## NLP Procedure Summary - iPhone12
+The following steps will be performed:
+- Lower all characters
+- Remove the URLs, special characters, hashtags, numbers, rt, at, ismth, ag, prepositions, blank spaces at the beginning and the end, tags, and words that do not contribute to this project including apple, iphone 
+- Turn text into tokens
+- Remove stopwords
+- Data Visualizations
+- Sentiment Analysis
+- Word Pair Association
+- Document-Term Matrix
+  
+
+```{r}
+# lower characters and remove unwanted characters
+df = df %>%
+  mutate(text = tolower(text),
+         text = str_replace_all(text, "http.*", " "),
+         text = str_replace_all(text, "https.*", " "),
+         text = str_replace_all(text, "https", " "),
+         text = str_replace_all(text,"\\<u[^\\>]*\\>"," "),
+         text = str_replace_all(text, "\\<u[^\\>]*\\>"," "),
+         text = str_replace_all(text, "apple", " "),
+         text = str_replace_all(text, "iphone", " "),
+         text = str_replace_all(text, "#[A-Za-z0-9]+", " "),
+         text = str_replace_all(text, "#\\n", " "),
+         text = str_replace_all(text,"[^[:graph:]]", " "),
+         text = str_replace_all(text,"ag", " "),
+         text = str_replace_all(text,"ismth", " "),
+         text = gsub("&amp", " ",text),
+         text = tolower(text),
+         text = gsub("rt", " ", text),
+         text = gsub("(RT|via)((?:\\b\\W*@\\w+)+)", " ",text),
+         text = gsub("@\\w+", " ", text),
+         text = gsub("[[:punct:]]", " ", text),
+         text = gsub("[[:digit:]]", " ", text),
+         text = gsub("@[a-z,A-Z]*"," ",text),
+         text = gsub("[^\x01-\x7F]", "", text),
+         text = gsub("[ |\t]{2,}", " ", text),
+         text = gsub("[\r\n]", "", text),
+         text = gsub("\\W*\\b\\w\\b\\W*", " ", text),
+         text = removeWords(text,c(preposition)),
+         text = gsub("^ ", "", text),
+         text = gsub(" $", "", text))
+
+# turn text into tokens
+tokens <- df %>%
+  unnest_tokens(output = word, input = text)
+
+# remove stopwords
+sw = get_stopwords()
+cleaned_tokens <- tokens %>%
+  filter(!word %in% sw$word)
+```
+After preprocessing the text, now we will visualize the data to which words are most used in tweets about iPhone12.
+
+```{r}
+pal <- brewer.pal(8,"Set1")
+cleaned_tokens %>%
+  count(word) %>%
+  with(wordcloud(word, n, random.order = FALSE, max.words = 100, colors=pal))
+```
+
+```{r}
+#Plotting the number of Occurences of each word in the Tweets
+
+ggplot(cleaned_tokens%>%count(word,sort=T)%>%top_n(10),aes(reorder(word,n),n))+
+  geom_bar(stat = "identity")+
+  geom_text(aes(label = n),color="#0f190f", hjust = -0.05, size = 2)+
+  theme_bw()+
+  coord_flip()+
+  xlab("Number of Occurences")+
+  ylab("Words used")+
+  ggtitle("Number of Occurences of each word")+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+```
+
+As we can see on the wordcloud, the word that is mentioned most frequently recently is "Purple". It is a good sign that people are interested in the new color. It is also noticeable that the word "mini" also appears a lot. It is interesting. Even though Apple introduced 4 phones at the same time (iPhone12, iPhone12 mini, iPhone12 Pro, iPhone12 Pro Max), people seem to talk about the mini version whenever they talk about iPhone12 instead of the other two models. That makes us curious to perform NLP on the hashtag #iphone12mini in the later part. 
+
+To learn more if people are reacting positively or negatively about the phone, we will perform Sentiment Analysis.
+
+### Sentiment Analysis
+```{r}
+tweet = cleaned_tokens %>%
+  left_join(get_sentiments("nrc")) %>%
+  rename(nrc = sentiment) %>%
+  left_join(get_sentiments("bing")) %>%
+  rename(bing = sentiment) %>%
+  left_join(get_sentiments("afinn")) %>%
+  rename(afinn = value)
+
+bing_word_counts <- tweet %>%
+  filter(!is.na(bing)) %>%
+  count(word, bing, sort = TRUE)
+
+bing_word_counts %>%
+  mutate(n = ifelse(bing == "negative", -n, n)) %>%
+  filter(n > 10) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = bing)) +
+  geom_col() +
+  coord_flip() +
+  labs(y = "Contribution to sentiment")
+```
+
+Impressively, people are reacting very positively about the phone. 
+
+```{r}
+tweets_bing<-cleaned_tokens%>%
+  inner_join(get_sentiments("bing"),by="word")%>%
+  ungroup()
+
+tweets_bing%>%
+  count(word,sentiment)%>%
+  group_by(sentiment)%>%
+  top_n(10,n)%>%
+  ungroup()%>%
+  ggplot(aes(x=reorder(word,n),y=n,fill=sentiment))+
+  geom_col(show.legend = FALSE)+
+  coord_flip()+
+  facet_wrap(~sentiment,scales="free")+
+  labs(x="number of occurences",y="Words",title="Top 10 positive and negative sentiment words in Tweets using bing lexicon")+
+  theme(plot.title = element_text(size = 8, face = "bold"))
+```
+
+```{r}
+tweets_nrc<-cleaned_tokens%>%
+  inner_join(get_sentiments("nrc"),by="word")%>%
+  ungroup()
+
+tweets_nrc%>%
+  filter(sentiment %in% c("joy","anger","positive","negative","sadness"))%>%
+  group_by(sentiment)%>%
+  count(word,sentiment)%>%
+  top_n(10,n)%>%
+  ungroup()%>%
+  ggplot(aes(x=reorder(word,n),y=n,fill=sentiment))+
+  geom_col(show.legend=F)+
+  coord_flip()+
+  facet_wrap(~sentiment,scales="free")+
+  labs(x="number of occurences",y="Words",title="Top 10 words for each emotion used in Tweets using nrc lexicon")+
+  theme(plot.title = element_text(size = 8, face = "bold"))
+```
+
+As seen above, there are multiple emotions in the sentiment column. Unlike bing which has only 2 sentiments either positive or negative, nrc lexicon has different emotions like Anger, Disgust, Positive , Negative, Joy, Sadness etc.
+
+For analysis, we are using 5 emotions: anger, joy , negative, positive and sadness.
+
+People are positive about 'Protection'. It can be inferred that Ceramic Shield front in iPhone12 makes people love the phone. 'Bath' is also laid under 'positive'. We can infer that Water Resistant is people's favorite feature too. 
+
+We also can identify some weaknesses that Apple may consider to improve including 'battery' and 'hot' phones.
+
+### Word Pair Association
+```{r}
+#pairwise count
+text_df <- df %>%
+  unnest_tokens(input=text, word, to_lower=FALSE, drop=FALSE) %>%
+  filter(!word %in% stop_words$word) %>%
+  ungroup()
+
+word_pairs <- text_df %>%
+  group_by(word) %>%
+  filter(n() > 5) %>%
+  ungroup() %>%
+  pairwise_count(item=word, text, sort = TRUE, upper = FALSE) %>%
+  filter(n > 10)
+
+word_pairs %>%
+  top_n(n=250) %>%
+  graph_from_data_frame() %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n, edge_width = n), edge_colour = "cyan4") +
+  geom_node_point(size = 2) +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1) +
+  theme(text = element_text(size = 3), title = element_text(size=9)) +
+  ggtitle("#iPhone12 tweets Pairwise Count Graph")
+
+
+```
+
+Plot by Word Pairwise Count gives us the number of times word X and Y appear together within a group.
+Here, we can observe the strong connection between iPhone - purple due to the recent purple color iPhone launch.
+Similarly we can observe higher counts of iPhone and iPad and the recent event. Interestingly, Apple also introduced new iMac and and Apple TV. But the relationship between the event and those products are not as strong as the relationship between the event - iPad - Purple.
+
+```{r}
+#pairwise correlation
+word_corrs <- text_df %>%
+  group_by(word) %>%
+  filter(n() > 50) %>%
+  ungroup() %>%
+  pairwise_cor(item=word, text, sort = TRUE) %>%
+  filter(correlation > 0.01)
+
+word_corrs %>%
+  top_n(n=250) %>%
+  graph_from_data_frame() %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(edge_alpha = correlation, edge_width = correlation), edge_colour = "cyan4") +
+  geom_node_point(size = 2) +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1) +
+  theme(text = element_text(size = 3), title = element_text(size=9)) +
+  ggtitle("#iPhone12 tweets Pairwise Correlation Graph")
+
+```
+
+Plot by Word Pairwise Correlation calculates how much more likely it is that either both word X and Y appear, 
+or neither do, than that one appears without the other.
+
+Words with higher phi are words more likely to appear togther than seperately.
+
+From this, we can see a  correlation between bluetooth - watch - airpods, other Apple's devices and Amazon. So, Amazon seems to be where people tend to shop for Apple's products. 
+
+
+### Document-Term Matrix
+```{r}
+
+clean_tweets<- df$text
+
+#Corpus Creation
+
+tweets_source<-VectorSource(clean_tweets)
+
+# Creating vector source from the headlines of the dataset
+tweets_corpus<-VCorpus(tweets_source)
+
+clean_corpus <- function(corpus){
+  corpus <- tm_map(corpus, removePunctuation)
+  corpus <- tm_map(corpus, removeNumbers)
+  corpus <- tm_map(corpus, removeWords,stopwords("en"))
+  corpus <- tm_map(corpus, content_transformer(tolower))
+  corpus <- tm_map(corpus,stripWhitespace)
+  return(corpus)
+}
+
+tweets_clean_corpus<-clean_corpus(tweets_corpus)
+
+#Creating a Document - Term Matrix
+
+tweets_dtm<-DocumentTermMatrix(tweets_clean_corpus)
+
+#convert documenttermmatrix to matrix
+tweets_m<-as.matrix(tweets_dtm[1:2000,])
+
+#Sort the term frequency and look at the top 20 most frequently occuring words
+term_freq<-colSums(tweets_m)
+
+term_freq<-sort(term_freq,decreasing=TRUE)
+
+term_freq[1:10]
+
+```
+
+
+
+## NLP Result Summary and Discussion - iPhone12
+- The most frequently occured words in tweets about iPhone12 are: Purple, Event. People are also reacting very positively. It means that the event succeeded in promoting the new color for iPhone12. 
+- 'Mini' is one of the most frequently occured words. Compared with other two models, iPhone12 Pro and iPhone12 Pro Max, iPhone12 mini seems to be compared more with Phone12.
+- People's favorite things about iPhone12 are its design, the new Ceramic Shield which makes the phone more durable, and water resistant.
+- Customers seem to have troubles with the phone's battery and its temperature. 
+- After the event, people tend to be more excited at the iPad and the new color of iPhone12 than other products which are also introduced in the event.
+- Amazon appears as the place where people shop Apple's products.
+- 5G connectivity has been promoted a lot since Apple launched the iPhone12. But it seems that people do not really care about that feature. 
+
+
+## NLP Procedure Summary - iPhone12 mini 
+The following steps will be performed: 
+- Lower all characters 
+- Remove the URLs, special characters, hashtags, numbers, rt, at, ismth, ag, prepositions, blank spaces at the beginning and the end, tags, and words that do not contribute to this project including apple, iphone, mini 
+- Turn text into tokens 
+- Remove stopwords 
+- Data Visualizations 
+-  Sentiment Analysis
+The main purpose of this project is to learn about iPhone12. Hence, we will not go too deep about iPhone12 mini. We only want to see how people react to iPhone12 mini.
+
+
+```{r}
+# load data from the csv file
+df2 <- read.csv("iphone12mini.csv")
+# preprocessing
+df2 = df2 %>%
+  filter(isRetweet == 'FALSE')
+df2 <- df2 %>% 
+  select(-c(15,16,13,10,9,7,6,4))
+# lower characters and remove unwanted characters
+df2 = df2 %>%
+  mutate(text = tolower(text),
+         text = str_replace_all(text, "http.*", " "),
+         text = str_replace_all(text, "https.*", " "),
+         text = str_replace_all(text, "https", " "),
+         text = str_replace_all(text,"\\<u[^\\>]*\\>"," "),
+         text = str_replace_all(text, "\\<u[^\\>]*\\>"," "),
+         text = str_replace_all(text, "apple", " "),
+         text = str_replace_all(text, "iphone", " "),
+         text = str_replace_all(text, "mini", " "),
+         text = str_replace_all(text, "#[A-Za-z0-9]+", " "),
+         text = str_replace_all(text, "#\\n", " "),
+         text = str_replace_all(text,"[^[:graph:]]", " "),
+         text = str_replace_all(text,"ag", " "),
+         text = str_replace_all(text,"ismth", " "),
+         text = gsub("&amp", " ",text),
+         text = tolower(text),
+         text = gsub("rt", " ", text),
+         text = gsub("(RT|via)((?:\\b\\W*@\\w+)+)", " ",text),
+         text = gsub("@\\w+", " ", text),
+         text = gsub("[[:punct:]]", " ", text),
+         text = gsub("[[:digit:]]", " ", text),
+         text = gsub("@[a-z,A-Z]*"," ",text),
+         text = gsub("[^\x01-\x7F]", "", text),
+         text = gsub("[ |\t]{2,}", " ", text),
+         text = gsub("[\r\n]", "", text),
+         text = gsub("\\W*\\b\\w\\b\\W*", " ", text),
+         text = removeWords(text,c(preposition)),
+         text = gsub("^ ", "", text),
+         text = gsub(" $", "", text))
+
+# turn text into tokens
+tokens2 <- df2 %>%
+  unnest_tokens(output = word, input = text)
+
+# remove stopwords
+cleaned_tokens2 <- tokens2 %>%
+  filter(!word %in% sw$word)
+
+
+#wordCloud
+cleaned_tokens2 %>%
+  count(word) %>%
+  with(wordcloud(word, n, random.order = FALSE, max.words = 100, colors=pal))
+```
+
+```{r}
+#Plotting the number of Occurences of each word in the Tweets
+
+ggplot(cleaned_tokens2%>%count(word,sort=T)%>%top_n(10),aes(reorder(word,n),n))+
+  geom_bar(stat = "identity")+
+  geom_text(aes(label = n),color="#0f190f", hjust = -0.05, size = 2)+
+  theme_bw()+
+  coord_flip()+
+  xlab("Number of Occurences")+
+  ylab("Words used")+
+  ggtitle("Number of Occurences of each word")+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+```
+
+As we can see on the wordcloud, “Purple” is also mentioned very frequently. People are interested in the new color in both models. 
+
+To learn more if people are reacting positively or negatively about the phone, we will perform Sentiment Analysis.
+### Sentiment Analysis
+```{r}
+tweet2 = cleaned_tokens2 %>%
+  left_join(get_sentiments("nrc")) %>%
+  rename(nrc = sentiment) %>%
+  left_join(get_sentiments("bing")) %>%
+  rename(bing = sentiment) %>%
+  left_join(get_sentiments("afinn")) %>%
+  rename(afinn = value)
+
+bing_word_counts2 <- tweet2 %>%
+  filter(!is.na(bing)) %>%
+  count(word, bing, sort = TRUE)
+
+bing_word_counts2 %>%
+  mutate(n = ifelse(bing == "negative", -n, n)) %>%
+  filter(n > 2) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = bing)) +
+  geom_col() +
+  coord_flip() +
+  labs(y = "Contribution to sentiment")
+```
+People are also reacting very positively about the phone.
+```{r}
+tweets_bing2<-cleaned_tokens2%>%
+  inner_join(get_sentiments("bing"),by="word")%>%
+  ungroup()
+
+tweets_bing2%>%
+  count(word,sentiment)%>%
+  group_by(sentiment)%>%
+  top_n(10,n)%>%
+  ungroup()%>%
+  ggplot(aes(x=reorder(word,n),y=n,fill=sentiment))+
+  geom_col(show.legend = FALSE)+
+  coord_flip()+
+  facet_wrap(~sentiment,scales="free")+
+  labs(x="number of occurences",y="Words",title="Top 10 positive and negative sentiment words in Tweets using bing lexicon")+
+  theme(plot.title = element_text(size = 8, face = "bold"))
+```
+
+```{r}
+tweets_nrc2<-cleaned_tokens2%>%
+  inner_join(get_sentiments("nrc"),by="word")%>%
+  ungroup()
+
+tweets_nrc2%>%
+  filter(sentiment %in% c("joy","anger","positive","negative","sadness"))%>%
+  group_by(sentiment)%>%
+  count(word,sentiment)%>%
+  top_n(10,n)%>%
+  ungroup()%>%
+  ggplot(aes(x=reorder(word,n),y=n,fill=sentiment))+
+  geom_col(show.legend=F)+
+  coord_flip()+
+  facet_wrap(~sentiment,scales="free")+
+  labs(x="number of occurences",y="Words",title="Top 10 words for each emotion used in Tweets using nrc lexicon")+
+  theme(plot.title = element_text(size = 8, face = "bold"))
+```
+
+Top 10 words for each emotion used in Tweets about iPhone12 mini are very similar with ones about iPhone 12.
+
+## NLP Result Summary and Discussion - iPhone12 mini
+- People are also reacting positively about iPhone12 mini. 
+- The results of Sentiment Analysis on iPhone12 mini are very similar with iPhone12. 
+- People are excited about the new color on iPhone12 mini. 
+
+## NLP Comparison between iPhone12 and iPhone12 mini. 
+- People are reacting positively about both models. 
+- Both models share the same favorite features and also weaknesses.
+- It is surprising because there are many articles criticize iPhone12 mini and even predicted that Apple will not produce iPhone mini next year. So, there can be two scenarios. First, the critics are not right. Second, if the critics are wrong, iPhone12 mini itself is not a problem but it may be because people prefer iPhone12 when the size is the only difference between them.
